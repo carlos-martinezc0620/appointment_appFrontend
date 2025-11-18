@@ -28,6 +28,17 @@ class _AppointmentEditPageState extends State<AppointmentEditPage> {
         .collection('appointments')
         .doc(widget.docId)
         .get();
+
+    // 🔧 Evita errores si el documento fue eliminado
+    if (!doc.exists) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La cita ya no existe o fue eliminada')),
+      );
+      Navigator.pop(context);
+      return;
+    }
+
     final data = doc.data()!;
     setState(() {
       _motivoController.text = data['motivo'] ?? '';
@@ -93,53 +104,148 @@ class _AppointmentEditPageState extends State<AppointmentEditPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading)
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF6FBFF),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Editar Cita')),
+      backgroundColor: const Color(0xFFF6FBFF),
+      appBar: AppBar(
+        title: const Text(
+          'Editar Cita',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: const Color(0xFF5AA9E6),
+        elevation: 3,
+        centerTitle: true,
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Form(
           key: _formKey,
           child: Column(
             children: [
-              TextFormField(
-                controller: _motivoController,
-                decoration: const InputDecoration(labelText: 'Motivo'),
-                validator: (v) => v == null || v.isEmpty ? 'Obligatorio' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                initialValue: _doctorId,
-                onChanged: (v) => _doctorId = v,
-                decoration: const InputDecoration(labelText: 'Doctor ID'),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                title: Text(
-                  _selectedDate == null
-                      ? 'Seleccionar fecha'
-                      : 'Fecha: ${_selectedDate!.day.toString().padLeft(2, '0')}/'
-                            '${_selectedDate!.month.toString().padLeft(2, '0')}/'
-                            '${_selectedDate!.year}',
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 20,
                 ),
-                trailing: const Icon(Icons.calendar_today),
-                onTap: _pickDate,
-              ),
-              ListTile(
-                title: Text(
-                  _selectedTime == null
-                      ? 'Seleccionar hora'
-                      : 'Hora: ${_selectedTime!.format(context)}',
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
-                trailing: const Icon(Icons.access_time),
-                onTap: _pickTime,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: _motivoController,
+                      decoration: InputDecoration(
+                        labelText: 'Motivo',
+                        prefixIcon: const Icon(
+                          Icons.description_outlined,
+                          color: Color(0xFF5AA9E6),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        focusedBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(
+                            color: Color(0xFF5AA9E6),
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                      validator: (v) =>
+                          v == null || v.isEmpty ? 'Campo obligatorio' : null,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      initialValue: _doctorId,
+                      onChanged: (v) => _doctorId = v,
+                      decoration: InputDecoration(
+                        labelText: 'ID del Doctor',
+                        prefixIcon: const Icon(
+                          Icons.person_outline,
+                          color: Color(0xFF5AA9E6),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        focusedBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(
+                            color: Color(0xFF5AA9E6),
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                      leading: const Icon(
+                        Icons.calendar_today_outlined,
+                        color: Color(0xFF5AA9E6),
+                      ),
+                      title: Text(
+                        _selectedDate == null
+                            ? 'Seleccionar fecha'
+                            : 'Fecha: ${_selectedDate!.day.toString().padLeft(2, '0')}/'
+                                  '${_selectedDate!.month.toString().padLeft(2, '0')}/'
+                                  '${_selectedDate!.year}',
+                        style: const TextStyle(color: Color(0xFF1B4965)),
+                      ),
+                      onTap: _pickDate,
+                    ),
+                    const Divider(),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                      leading: const Icon(
+                        Icons.access_time_outlined,
+                        color: Color(0xFF5AA9E6),
+                      ),
+                      title: Text(
+                        _selectedTime == null
+                            ? 'Seleccionar hora'
+                            : 'Hora: ${_selectedTime!.format(context)}',
+                        style: const TextStyle(color: Color(0xFF1B4965)),
+                      ),
+                      onTap: _pickTime,
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _saveAppointment,
-                child: const Text('Guardar cambios'),
+              const SizedBox(height: 28),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.save_rounded, color: Colors.white),
+                  label: const Text(
+                    'Guardar Cambios',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  onPressed: _saveAppointment,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF5AA9E6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    elevation: 4,
+                    shadowColor: const Color(0xFF5AA9E6).withOpacity(0.3),
+                  ),
+                ),
               ),
             ],
           ),
