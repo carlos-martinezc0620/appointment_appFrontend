@@ -1,11 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'messages_page.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'medic_settings_page.dart';
 
 class DashboardPage extends StatefulWidget {
-  final String doctorId; // UID real del doctor autenticado
-
+  final String doctorId;
   const DashboardPage({super.key, required this.doctorId});
 
   @override
@@ -13,27 +12,22 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  int _selectedIndex = 0;
-
-  late final List<Widget> _pages;
-
-  @override
-  void initState() {
-    super.initState();
-    _pages = [
-      DashboardHome(doctorId: widget.doctorId), // Tab 0: indicadores
-      const MessagesPage(), // Tab 1: Mensajes
-      MedicSettingsPage(doctorId: widget.doctorId), // Tab 2: Configuración
-    ];
-  }
+  int _currentIndex = 0;
 
   @override
   Widget build(BuildContext context) {
+    final screens = [
+      DashboardHome(doctorId: widget.doctorId),
+      const Center(child: Text("Mensajes")),
+      MedicSettingsPage(doctorId: widget.doctorId), //  <-- YA AGREGADO
+    ];
+
     return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: _pages),
+      resizeToAvoidBottomInset: false,
+      body: screens[_currentIndex],
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (i) => setState(() => _selectedIndex = i),
+        currentIndex: _currentIndex,
+        onTap: (i) => setState(() => _currentIndex = i),
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.dashboard),
@@ -47,242 +41,270 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 }
 
-/// DashboardHome: muestra 3 indicadores en tiempo real usando streams de Firestore.
-/// Ajustes posibles: nombre de colecciones/fields si tu modelo difiere.
-class DashboardHome extends StatelessWidget {
-  final String doctorId;
+//
+// ─────────────────────────────────────────────
+//   DASHBOARD HOME — GRÁFICAS
+// ─────────────────────────────────────────────
+//
 
+class DashboardHome extends StatefulWidget {
+  final String doctorId;
   const DashboardHome({super.key, required this.doctorId});
 
-  // NOTE: Si tus citas están en otra colección (ej. doctor/{id}/citas),
-  // cambia la consulta correspondiente abajo.
-  Stream<QuerySnapshot<Map<String, dynamic>>> _totalCitasStream() {
+  @override
+  State<DashboardHome> createState() => _DashboardHomeState();
+}
+
+class _DashboardHomeState extends State<DashboardHome> {
+  Stream<QuerySnapshot<Map<String, dynamic>>> _citasStream() {
     return FirebaseFirestore.instance
-        .collection('citas') // <- cambia si tu colección se llama distinto
-        .where('doctorId', isEqualTo: doctorId)
+        .collection('appointments')
+        .where('doctorId', isEqualTo: widget.doctorId)
         .snapshots();
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> _citasProximasStream() {
-    final now = Timestamp.fromDate(DateTime.now());
-    // Considera status si la usas (por ejemplo, 'cancelada' o 'completada')
-    // Aquí filtramos por fecha >= ahora y por doctorId
-    return FirebaseFirestore.instance
-        .collection('citas')
-        .where('doctorId', isEqualTo: doctorId)
-        .where('fecha', isGreaterThanOrEqualTo: now)
-        .snapshots();
-  }
+  static const List<String> _mesesText = [
+    "",
+    "Ene",
+    "Feb",
+    "Mar",
+    "Abr",
+    "May",
+    "Jun",
+    "Jul",
+    "Ago",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dic",
+  ];
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> _totalPacientesStream() {
-    // Esto cuenta todos los usuarios con rol == "Paciente".
-    // Si quieres contar sólo pacientes que tengan citas con este doctor,
-    // habría que hacer una consulta distinta (agregación).
-    return FirebaseFirestore.instance
-        .collection('usuarios')
-        .where('rol', isEqualTo: 'Paciente')
-        .snapshots();
-  }
+  Map<String, int> _groupByMonth(List<QueryDocumentSnapshot> docs) {
+    final now = DateTime.now();
+    final Map<String, int> result = {};
 
-  Widget _buildIndicator({required String title, required Widget content}) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(14.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 14, color: Colors.black54),
-            ),
-            const SizedBox(height: 8),
-            content,
-          ],
-        ),
-      ),
-    );
+    // Últimos 6 meses
+    for (int i = 5; i >= 0; i--) {
+      final m = DateTime(now.year, now.month - i);
+      result["${m.month}/${m.year}"] = 0;
+    }
+
+    // Contar citas de Firebase
+    for (var d in docs) {
+      final data = d.data() as Map<String, dynamic>;
+
+      if (!data.containsKey('createdAt')) continue;
+      if (data['createdAt'] is! Timestamp) continue;
+
+      final date = (data['createdAt'] as Timestamp).toDate();
+      final key = "${date.month}/${date.year}";
+
+      if (result.containsKey(key)) {
+        result[key] = result[key]! + 1;
+      }
+    }
+
+    return result;
   }
 
   @override
   Widget build(BuildContext context) {
-    // Grid de 3 indicadores (responsive: 1 o 2 columnas según ancho)
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            // Header
-            Row(
-              children: [
-                const Icon(
-                  Icons.medical_services,
-                  size: 28,
-                  color: Colors.blue,
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  "Dashboard del Doctor",
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-
-            // Indicadores
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
+          children: const [
+            Icon(Icons.analytics, size: 28, color: Colors.blue),
+            SizedBox(width: 10),
             Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth > 700;
-                  return GridView.count(
-                    crossAxisCount: isWide ? 3 : 1,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 2.6,
-                    children: [
-                      // Total citas creadas
-                      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: _totalCitasStream(),
-                        builder: (context, snap) {
-                          if (snap.hasError) {
-                            return _buildIndicator(
-                              title: "Total de citas",
-                              content: Text('Error: ${snap.error}'),
-                            );
-                          }
-                          if (!snap.hasData) {
-                            return _buildIndicator(
-                              title: "Total de citas",
-                              content: const Center(
-                                child: CircularProgressIndicator(),
-                              ),
-                            );
-                          }
-                          final total = snap.data!.docs.length;
-                          return _buildIndicator(
-                            title: "Total de citas",
-                            content: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  '$total',
-                                  style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const Icon(Icons.event_note, size: 36),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-
-                      // Citas próximas / pendientes
-                      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: _citasProximasStream(),
-                        builder: (context, snap) {
-                          if (snap.hasError) {
-                            return _buildIndicator(
-                              title: "Citas próximas",
-                              content: Text('Error: ${snap.error}'),
-                            );
-                          }
-                          if (!snap.hasData) {
-                            return _buildIndicator(
-                              title: "Citas próximas",
-                              content: const Center(
-                                child: CircularProgressIndicator(),
-                              ),
-                            );
-                          }
-
-                          // Si usas un campo "status" para diferenciar, filtra aquí:
-                          // final pendientes = snap.data!.docs.where((d) => d.data()['status'] != 'cancelada').length;
-                          final pendientes = snap.data!.docs.length;
-
-                          return _buildIndicator(
-                            title: "Citas próximas",
-                            content: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '$pendientes',
-                                      style: const TextStyle(
-                                        fontSize: 28,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    const Text('Pendientes / por venir'),
-                                  ],
-                                ),
-                                const Icon(Icons.upcoming, size: 36),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-
-                      // Total pacientes registrados
-                      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: _totalPacientesStream(),
-                        builder: (context, snap) {
-                          if (snap.hasError) {
-                            return _buildIndicator(
-                              title: "Total de pacientes",
-                              content: Text('Error: ${snap.error}'),
-                            );
-                          }
-                          if (!snap.hasData) {
-                            return _buildIndicator(
-                              title: "Total de pacientes",
-                              content: const Center(
-                                child: CircularProgressIndicator(),
-                              ),
-                            );
-                          }
-                          final totalPacientes = snap.data!.docs.length;
-                          return _buildIndicator(
-                            title: "Total de pacientes",
-                            content: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  '$totalPacientes',
-                                  style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const Icon(Icons.people, size: 36),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  );
-                },
+              child: Text(
+                "Dashboard del Doctor",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
               ),
-            ),
-
-            // Opcional: botón para recargar manualmente (no suele ser necesario con streams)
-            ElevatedButton.icon(
-              onPressed: () {
-                // Forzar rebuild; normalmente los streams son suficientes.
-                (context as Element).markNeedsBuild();
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Actualizar'),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 20),
+
+        //
+        // STREAM BUILDER
+        //
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _citasStream(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final docs = snapshot.data!.docs;
+            final citasPorMes = _groupByMonth(docs);
+            final mesesKeys = citasPorMes.keys.toList();
+            final valores = citasPorMes.values.toList();
+
+            return Column(
+              children: [
+                //
+                // ────────────────────────────────────
+                //   LINE CHART
+                // ────────────────────────────────────
+                //
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Citas por mes (Últimos 6 meses) – LineChart",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        SizedBox(
+                          height: 240,
+                          child: LineChart(
+                            LineChartData(
+                              lineBarsData: [
+                                LineChartBarData(
+                                  isCurved: true,
+                                  spots: [
+                                    for (int i = 0; i < valores.length; i++)
+                                      FlSpot(
+                                        i.toDouble(),
+                                        valores[i].toDouble(),
+                                      ),
+                                  ],
+                                  dotData: FlDotData(show: true),
+                                  color: Colors.blue,
+                                  barWidth: 3,
+                                ),
+                              ],
+                              titlesData: FlTitlesData(
+                                bottomTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    getTitlesWidget: (value, meta) {
+                                      final i = value.toInt();
+                                      if (i < 0 || i >= mesesKeys.length) {
+                                        return const Text("");
+                                      }
+
+                                      final parts = mesesKeys[i].split("/");
+                                      final mesNum =
+                                          int.tryParse(parts[0]) ?? 1;
+
+                                      return Text(
+                                        _mesesText[mesNum],
+                                        style: const TextStyle(fontSize: 11),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                //
+                // ────────────────────────────────────
+                //   BAR CHART
+                // ────────────────────────────────────
+                //
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Citas por mes – BarChart",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        SizedBox(
+                          height: 260,
+                          child: BarChart(
+                            BarChartData(
+                              alignment: BarChartAlignment.spaceAround,
+                              barGroups: [
+                                for (int i = 0; i < valores.length; i++)
+                                  BarChartGroupData(
+                                    x: i,
+                                    barRods: [
+                                      BarChartRodData(
+                                        toY: valores[i].toDouble(),
+                                        width: 18,
+                                        color: Colors.orange,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                              titlesData: FlTitlesData(
+                                bottomTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    getTitlesWidget: (value, meta) {
+                                      final i = value.toInt();
+                                      if (i < 0 || i >= mesesKeys.length) {
+                                        return const Text("");
+                                      }
+
+                                      final parts = mesesKeys[i].split("/");
+                                      final mesNum =
+                                          int.tryParse(parts[0]) ?? 1;
+
+                                      return Text(
+                                        _mesesText[mesNum],
+                                        style: const TextStyle(fontSize: 11),
+                                      );
+                                    },
+                                  ),
+                                ),
+                                leftTitles: AxisTitles(
+                                  sideTitles: SideTitles(showTitles: true),
+                                ),
+                                rightTitles: AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                                topTitles: AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ],
     );
   }
 }
